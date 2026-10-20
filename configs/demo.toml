@@ -1,0 +1,281 @@
+# DataOTA Demo 配置。标 ⚠ 的是设计文档第 8 节的待定项，当前为占位值。
+
+[run]
+workdir = "runs/demo"
+seed = 42
+model_id = "defect-detector"
+
+# 每个节点选择实现：demo 为 mock；真实实现注册后改名即可（如 l2 = "qwen_vl", reviewer = "queue"）
+# 需要 numpy + Pillow 的实现（detector 里的 classical、geometric、metrics、classical 质量）缺依赖时自动回退到 demo/mock 并写审计
+[impl]
+source_adapter = "demo"
+gateway = "demo"
+audio = "demo"
+claim_parser = "demo"
+l1 = "detector"              # demo=模拟检测；detector=检测模型库（见 [models.l1]）；yolo=兼容旧配置
+l2 = "demo"
+reviewer = "oracle"          # oracle=用模拟真值自动审核；queue=本地审核台（人工填写 JSON）
+world_model = "geometric"    # P3 默认世界模型；按视角路由与回退见 [flywheel.world_models]
+gate = "metrics"             # demo=读模拟质量；metrics=真实帧像素度量（深度连续 / 形状稳定 / 纹理闪烁）
+scene_quality = "classical"  # A2 场景质量检测：mock / classical
+label_agent = "demo"
+trainer = "demo"
+compiler = "demo"
+telemetry = "demo"
+device_signal = "demo"
+
+[render]                     # Demo 数据源：按模拟真值渲染真实 JPEG（需要 numpy + Pillow）
+enabled = true
+width = 640
+height = 360
+
+# ================================================================ 模型库
+[models.l1]                  # B2 L1 筛查使用的检测器
+detector = "ensemble"        # [models.detectors] 中的名字
+score_threshold = 0.5        # 最高候选分 ≥ 阈值判为有缺陷
+uncertain_margin = 0.1       # 前两名不同类别分差 < margin → 类别不确定
+hard_tags = {}               # 额外按场景标签判困难切片，如 { light = "night" }；默认只看场景质量标志
+
+# 检测器目录。impl：mock / classical / ultralytics / onnx / torchvision / http / ensemble
+# tier：demo = Demo 可用；prod = 生产候选（需安装依赖或部署服务）
+[models.detectors.mock]
+impl = "mock"
+tier = "demo"
+desc = "读模拟真值加噪声（零依赖）"
+
+[models.detectors.classical]
+impl = "classical"
+tier = "demo"
+desc = "传统视觉基线：背景差分 + 极性 / 形状 / 颜色规则，真实像素上运行"
+work_width = 320
+
+[models.detectors.ensemble]
+impl = "ensemble"
+tier = "demo"
+desc = "classical + mock 加权框融合（noisy-OR 计分），成员不一致即标记类别不确定"
+members = ["classical", "mock"]
+fusion = "wbf"
+score = "noisy_or"
+weights = [1.0, 0.6]
+iou_thr = 0.3
+
+[models.detectors.yolov8n]
+impl = "ultralytics"
+tier = "prod"
+desc = "Ultralytics YOLOv8n（替换为自训练缺陷权重）"
+weights = "yolov8n.pt"
+model_type = "yolo"
+class_map = { 0 = "crack", 1 = "scratch", 2 = "dent", 3 = "rust" }
+
+[models.detectors.rtdetr-l]
+impl = "ultralytics"
+tier = "prod"
+desc = "RT-DETR-L：端到端检测，小目标与遮挡更稳"
+weights = "rtdetr-l.pt"
+model_type = "rtdetr"
+class_map = { 0 = "crack", 1 = "scratch", 2 = "dent", 3 = "rust" }
+
+[models.detectors.edge-onnx]
+impl = "onnx"
+tier = "prod"
+desc = "T9 导出的设备端 ONNX（YOLOv8 输出格式），回放设备上实际运行的模型"
+path = ""
+imgsz = 640
+class_map = { 0 = "crack", 1 = "scratch", 2 = "dent", 3 = "rust" }
+
+[models.detectors.frcnn]
+impl = "torchvision"
+tier = "prod"
+desc = "Faster R-CNN v2（torchvision），作为高精度离线标注检测器"
+arch = "fasterrcnn_resnet50_fpn_v2"
+weights = ""
+
+[models.detectors.remote]
+impl = "http"
+tier = "prod"
+desc = "远程检测服务（Triton / TorchServe / 自建服务），协议见 dataota/models/detectors.py"
+endpoint = ""
+
+# 世界模型目录。impl：demo / geometric / http；views 为支持的视角（省略 = 全部）
+[models.world.geometric]
+impl = "geometric"
+tier = "demo"
+desc = "几何视角合成基线：单应变换 + 远近缩放 + 光照噪声 + 遮挡物，精确给出每帧目标框"
+gpu_hours_per_clip = 0.01
+
+[models.world.demo]
+impl = "demo"
+tier = "demo"
+desc = "受控变换占位：只写占位帧与模拟质量（零依赖兜底）"
+gpu_hours_per_clip = 0.05
+
+[models.world.ppmem]
+impl = "http"
+tier = "demo"
+desc = "PPMem（设计文档 Demo 候选）：部署推理服务后填写 endpoint"
+endpoint = ""
+gpu_hours_per_clip = 0.05
+
+[models.world.inspatio]
+impl = "http"
+tier = "demo"
+desc = "InSpatio（设计文档 Demo 候选）：部署推理服务后填写 endpoint"
+endpoint = ""
+gpu_hours_per_clip = 0.05
+
+[models.world.holo4d]
+impl = "http"
+tier = "prod"
+desc = "Holo4D（生产候选）"
+endpoint = ""
+gpu_hours_per_clip = 0.2
+
+[models.world.dreamx]
+impl = "http"
+tier = "prod"
+desc = "DreamX（生产候选）"
+endpoint = ""
+gpu_hours_per_clip = 0.2
+
+[models.world.sana-wm]
+impl = "http"
+tier = "prod"
+desc = "SANA-WM（生产候选，长轨迹 / 360°）"
+endpoint = ""
+views = ["orbit-360", "yaw-60", "yaw+60", "night", "occluded"]
+gpu_hours_per_clip = 0.3
+
+[models.depth]               # P4 metrics 门禁的深度估计：proxy（零模型）/ transformers（Depth Anything）
+impl = "proxy"
+# model = "depth-anything/Depth-Anything-V2-Small-hf"
+
+[privacy]                    # C2
+allow_raw_media_off_device = false   # ⚠ 待定 1：图像/音频能否离开设备
+[privacy.retention_days]
+raw = 30
+quarantine = 30
+ingest = 180
+negatives = 90
+
+[device]                     # A0
+low_conf_threshold = 0.5
+scene_quality_min = 0.4
+daily_upload_budget = 40
+inferences_per_round = 10
+
+[routing.d1]                 # ⚠ 待定 2
+min_confidence = 0.85
+audio_urgency = 0.5
+
+[routing.d2]                 # ⚠ 待定 2
+min_confidence = 0.8
+human_severity = "high"
+spot_check_rate = 0.05
+
+[calibration]                # B8
+sample_rate = 0.2
+
+[flywheel]                   # P3
+missing_views = ["yaw-30", "yaw+30", "pitch-15", "far", "yaw-60"]
+frames_per_clip = 3
+
+[flywheel.world_models]      # P3 多模型路由：视角 → 候选模型（按顺序回退；不可用 / 失败 / 被 N2 降级则换下一个）
+default = ["ppmem", "geometric", "demo"]
+night = ["inspatio", "geometric", "demo"]
+occluded = ["sana-wm", "geometric", "demo"]
+"orbit-360" = ["sana-wm", "holo4d", "geometric"]
+
+[gate]                       # P4 ⚠ 待定 3
+pass_score = 0.7
+per_metric_floor = 0.5
+min_pass_rate = 0.6
+min_samples_for_feedback = 4 # N2：模型×视角至少这么多片段才触发“换模型 / 收窄视角”
+[gate.weights]
+depth = 0.4
+shape = 0.4
+flicker = 0.2
+
+[annotate]                   # P5
+num_agents = 3
+# 异构多智能体：3 个 VLM 实例（mock）+ 1 个检测器。注意 3 个智能体时 2/3=0.667 < 0.67，等于要求全票一致；
+# 4 个智能体时单个异议（3/4）仍可自动接受，检测器的不同错误模式只在与 VLM 同时出错时触发仲裁
+agents = ["demo", "demo", "demo", "detector:classical"]
+consensus_threshold = 0.67   # ⚠ 待定 5（人工比例口径）
+iou_threshold = 0.5
+
+[dataset]                    # P6
+formats = ["coco", "yolo", "sharegpt", "messages"]
+classes = ["crack", "scratch", "dent", "rust"]
+image_width = 640
+image_height = 360
+class_labels = { crack = "裂缝", scratch = "划痕", dent = "凹陷", rust = "锈蚀" }
+real_holdout_ratio = 0.3     # ⚠ 待定 4：真实留出集规模
+
+[train]                      # T7
+hard_case_weight = 2.0
+synthetic_ratio_cap = 0.5
+
+[eval]                       # T8 ⚠ 待定 4
+slices = ["day", "night", "far", "occluded"]
+slice_labels = { day = "白天", night = "夜间", far = "远距", occluded = "遮挡" }
+regression_threshold = 0.01
+min_improvement = 0.0
+[eval.initial_baseline]
+day = 0.82
+night = 0.61
+far = 0.66
+occluded = 0.55
+
+[[hardware.targets]]         # T9
+name = "npu-a"
+runtime = "rt-1.0"
+min_firmware = "1.0.0"
+quant = "int8"
+[[hardware.targets]]
+name = "gpu-b"
+runtime = "trt-8.6"
+min_firmware = "1.1.0"
+quant = "fp16"
+
+[fleet]
+size = 20
+
+[ota]                        # T10 ⚠ 待定 7：Demo 只做模拟
+rollout = [
+  { stage = "internal", ratio = 0.1 },
+  { stage = "shadow",   ratio = 0.0 },
+  { stage = "canary",   ratio = 0.1 },
+  { stage = "partial",  ratio = 0.5 },
+  { stage = "full",     ratio = 1.0 },
+]
+[ota.rollback_threshold]
+fail_rate = 0.25
+shadow_disagree = 0.1
+[ota.failure_injection]      # 故障注入，验证回滚路径
+power_loss = 0.05
+verify = 0.03
+install = 0.03
+switch = 0.02
+
+[monitor]                    # M11
+psi_alert = 0.2
+drift_method = "psi"         # 告警使用的漂移检测：psi / js / ks（三者都会计算并上报）
+drift_thresholds = { psi = 0.2, js = 0.05, ks = 0.2 }
+latency_p95_ms = 60
+plateau_rounds = 3
+plateau_eps = 0.005
+drift_from_round = 3         # 从第 3 轮起注入漂移，演示回流
+
+[governance]                 # M12
+max_fragmentation = 0.3
+
+[cost]                       # C3 ⚠ 待定 8：单轮闭环成本上限
+gpu_hours_per_clip = 0.05
+gpu_hours_per_train = 2.0
+[cost.budget]
+gpu_hours = 40
+l2_calls = 200
+human_minutes = 300
+
+[security]
+signing_key = "demo-key-change-me"

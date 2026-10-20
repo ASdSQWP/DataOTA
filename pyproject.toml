@@ -1,0 +1,26 @@
+[project]
+name = "dataota"
+version = "0.1.0"
+description = "Incremental vision data flywheel -> device-side algorithm update & maintenance"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+vision = ["numpy>=1.24", "pillow>=10"]          # 真实像素：场景渲染 / classical 检测 / 几何世界模型 / 像素门禁
+yolo = ["ultralytics>=8.0"]                     # 检测器 ultralytics（YOLO / RT-DETR）
+onnx = ["onnxruntime>=1.16", "numpy>=1.24", "pillow>=10"]
+torchvision = ["torch", "torchvision"]          # 检测器 torchvision（Faster R-CNN / RetinaNet / FCOS）
+vlm = ["transformers>=4.45", "torch"]           # L2 Qwen2.5-VL、Depth Anything 深度门禁
+
+[project.scripts]
+dataota = "dataota.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["dataota*"]
+
+[tool.setuptools.package-data]
+"dataota.web" = ["static/*.html", "static/*.css", "static/js/*.js", "static/js/views/*.js"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
