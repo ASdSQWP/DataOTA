@@ -104,12 +104,18 @@ export function frameScene(seed, box = null, opts = {}) {
 
 /** 给容器内所有占位帧图片绑定失败回退：隐藏 <img>，露出下面合成的场景。 */
 export function wireFrameImages(scope = document) {
-  scope.querySelectorAll('.bbox-stage img, .gallery-item img, .film-frame img').forEach((img) => {
+  scope.querySelectorAll('.bbox-stage img, .gallery-item img, .film-frame img, img.thumb').forEach((img) => {
     if (img.dataset.frameWired === '1') return;
     img.dataset.frameWired = '1';
     const fallback = () => {
-      img.style.display = 'none';
       const note = img.parentElement?.querySelector('.stage-note');
+      if (img.classList.contains('thumb')) {
+        // 表格缩略图：保留占位底色与尺寸，不显示破图图标
+        img.removeAttribute('src');
+        img.classList.add('thumb-empty');
+      } else {
+        img.style.display = 'none';
+      }
       if (note && !note.dataset.fallback) {
         note.dataset.fallback = '1';
         note.textContent = `${note.dataset.id || ''} 占位帧 · 按标注数据合成`.trim();

@@ -287,8 +287,11 @@ async function renderRoute() {
   };
 
   try {
-    await route.view.render(view, ctx);
+    // 先渲染到游离容器，避免快速切换路由时旧视图异步覆盖新视图
+    const stage = document.createElement('div');
+    await route.view.render(stage, ctx);
     if (seq !== renderSeq) return;
+    view.replaceChildren(...stage.childNodes);
     view.focus({ preventScroll: true });
     window.scrollTo(0, 0);
   } catch (err) {

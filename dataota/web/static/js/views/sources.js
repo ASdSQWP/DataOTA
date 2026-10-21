@@ -253,6 +253,7 @@ export async function render(root, ctx) {
     root.querySelector(sel).addEventListener('change', (e) => { state[key] = e.target.value; onFilter(); });
   });
   bind();
+  wireFrameImages(root);
   root.querySelectorAll('[data-act="run"]').forEach((b) => b.addEventListener('click', () => ctx.runModal()));
   root.querySelectorAll('[data-act="detectors"]').forEach((b) => b.addEventListener('click', () => ctx.go('detectors')));
 }

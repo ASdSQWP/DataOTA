@@ -747,6 +747,7 @@ body.locked { overflow: hidden; }
 .gallery-item .gi-body span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gallery-item .gi-top { position: absolute; top: 6px; left: 6px; right: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
 .thumb { width: 54px; height: 36px; border-radius: 6px; object-fit: cover; background: var(--panel-3); border: 1px solid var(--border); flex: none; }
+.thumb.thumb-empty { background: linear-gradient(135deg, var(--panel-3), var(--panel-2)); }
 .bbox-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .legend-swatches { display: flex; flex-wrap: wrap; gap: 8px; font-size: 10.5px; color: var(--text-3); }
 .legend-swatches span { display: inline-flex; align-items: center; gap: 5px; }
