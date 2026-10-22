@@ -41,18 +41,30 @@ class Handler(BaseHTTPRequestHandler):
             return
         sys.stderr.write(f"[web] {self.address_string()} {fmt % args}\n")
 
+    def handle_one_request(self) -> None:
+        self._sent = False          # 每个请求重置，keep-alive 下不会互相干扰
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            # 客户端在请求行阶段就断开（刷新 / 取消 / 关标签页）：连接已死，直接丢弃
+            self.close_connection = True
+
     def _send(self, status: int, body: bytes, ctype: str) -> None:
-        self.send_response(status)
-        self.send_header("Content-Type", ctype)
-        self.send_header("Content-Length", str(len(body)))
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
-        self.end_headers()
-        if self.command != "HEAD":
-            try:
+        if getattr(self, "_sent", False):     # 已经写过响应头，避免二次写导致异常级联
+            return
+        self._sent = True
+        try:
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.end_headers()
+            if self.command != "HEAD":
                 self.wfile.write(body)
-            except (BrokenPipeError, ConnectionResetError):
-                pass
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            # 浏览器取消请求 / 刷新页面时客户端会先断开，属正常现象，不应影响服务
+            self.close_connection = True
 
     def _json(self, status: int, obj: object) -> None:
         body = json.dumps(obj, ensure_ascii=False, default=str).encode("utf-8")
@@ -63,43 +75,49 @@ class Handler(BaseHTTPRequestHandler):
 
     # ------------------------------------------------------------ 入口
     def do_GET(self) -> None:
-        parsed = urlparse(self.path)
-        path = unquote(parsed.path)
-        query = {k: v[-1] for k, v in parse_qs(parsed.query).items()}
-        if path == "/media":
-            self._media(query.get("path", ""))
-            return
-        if path.startswith("/api/"):
-            self._api("GET", path, query, None)
-        else:
-            self._static(path)
+        try:
+            parsed = urlparse(self.path)
+            path = unquote(parsed.path)
+            query = {k: v[-1] for k, v in parse_qs(parsed.query).items()}
+            if path == "/media":
+                self._media(query.get("path", ""))
+                return
+            if path.startswith("/api/"):
+                self._api("GET", path, query, None)
+            else:
+                self._static(path)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
 
     def do_HEAD(self) -> None:
         self.do_GET()
 
     def do_POST(self) -> None:
-        parsed = urlparse(self.path)
-        path = unquote(parsed.path)
-        query = {k: v[-1] for k, v in parse_qs(parsed.query).items()}
         try:
-            length = int(self.headers.get("Content-Length") or 0)
-        except ValueError:
-            length = 0
-        if length > 3 * 1024 * 1024:                       # 上传收件箱：base64 图像 ≤ 1.5MB
-            self._error(413, "请求体过大")
-            return
-        body = self.rfile.read(length) if length else b"{}"
-        try:
-            payload = json.loads(body.decode("utf-8") or "{}")
-            if not isinstance(payload, dict):
-                raise ValueError("请求体必须是 JSON 对象")
-        except (ValueError, UnicodeDecodeError) as exc:
-            self._error(400, f"JSON 解析失败：{exc}")
-            return
-        if not path.startswith("/api/"):
-            self._error(404, "Not found")
-            return
-        self._api("POST", path, query, payload)
+            parsed = urlparse(self.path)
+            path = unquote(parsed.path)
+            query = {k: v[-1] for k, v in parse_qs(parsed.query).items()}
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                length = 0
+            if length > 3 * 1024 * 1024:                   # 上传收件箱：base64 图像 ≤ 1.5MB
+                self._error(413, "请求体过大")
+                return
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(body.decode("utf-8") or "{}")
+                if not isinstance(payload, dict):
+                    raise ValueError("请求体必须是 JSON 对象")
+            except (ValueError, UnicodeDecodeError) as exc:
+                self._error(400, f"JSON 解析失败：{exc}")
+                return
+            if not path.startswith("/api/"):
+                self._error(404, "Not found")
+                return
+            self._api("POST", path, query, payload)
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
 
     # ------------------------------------------------------------ API 路由
     def _api(self, method: str, path: str, q: dict[str, str], body: dict | None) -> None:
@@ -270,6 +288,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(200, runner.status())
                 return
             self._error(404, f"未知接口 {path}")
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError):
+            self.close_connection = True
         except Exception as exc:  # 接口级兜底，避免一个坏响应拖垮服务
             traceback.print_exc()
             self._error(500, f"{type(exc).__name__}: {exc}")
